@@ -62,3 +62,46 @@ curve smoothing for more natural circles and fast handwriting.
 Run `npm run build`, then upload the contents of `dist/` to any static web
 server. The build uses relative asset paths, so it can live in a subdirectory
 such as `public_html/inkpdf/`.
+
+## Course PDF library
+
+InkPDF can offer a pre-populated set of PDFs alongside the usual local file
+picker — useful when another repo (e.g. a course-materials site) builds this
+app and deploys it together with a folder of lecture PDFs.
+
+At runtime the app fetches `pdfs/index.json`, relative to wherever
+`index.html` is served from. If that request fails (the default for this
+repo's own deploy), the feature stays hidden and nothing changes. If it
+succeeds, a "Course files" dropdown appears in the toolbar and an equivalent
+panel appears on the empty-state screen, both listing every entry.
+
+`pdfs/index.json` is a JSON array. Each entry is either a plain filename
+(the display title is derived from it, e.g. `lecture-02-recursion.pdf` →
+"lecture 02 recursion") or an object with an explicit title:
+
+```json
+[
+  "lecture-01-intro.pdf",
+  { "file": "lecture-02-recursion.pdf", "title": "Lecture 2: Recursion" }
+]
+```
+
+File paths are resolved relative to `index.json` itself, so the simplest
+layout is a `pdfs/` directory containing the PDFs plus the manifest, deployed
+next to the built `dist/` output:
+
+```
+dist/
+├── index.html
+├── assets/…
+└── pdfs/
+    ├── index.json
+    ├── lecture-01-intro.pdf
+    └── lecture-02-recursion.pdf
+```
+
+To point at a manifest somewhere else, add a meta tag to `index.html`:
+
+```html
+<meta name="inkpdf-library" content="path/to/manifest.json" />
+```

@@ -40,7 +40,7 @@ button { color: inherit; }
 .brand span:last-child { color: #737c77; font-size: 11px; margin-top: 3px; }
 
 .toolbar-actions {
-  display: flex; justify-content: center; align-items: center; gap: 6px;
+  display: flex; justify-content: center; justify-content: safe center; align-items: center; gap: 6px;
   min-width: 0; overflow-x: auto; scrollbar-width: none;
 }
 .toolbar-actions::-webkit-scrollbar { display: none; }
@@ -52,6 +52,12 @@ button { color: inherit; }
 .open-button { padding: 9px 13px; font-size: 13px; }
 .open-button:hover, .primary-button:hover { background: #245749; }
 .open-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.library-select {
+  height: 38px; padding: 0 10px; border-radius: 9px; border: 1px solid #d9ddd7;
+  background: #fff; color: #18201d; font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer; max-width: 190px;
+}
+.library-select:hover { border-color: #b7c2bb; }
 .divider { height: 28px; width: 1px; background: #d9ddd7; margin: 0 4px; }
 .tool-group, .color-group { display: flex; align-items: center; gap: 4px; }
 
@@ -119,6 +125,15 @@ h1 { font: 700 clamp(30px, 4vw, 48px)/1.08 'Manrope', sans-serif; letter-spacing
 .primary-button { padding: 12px 20px; }
 .shortcut-hint { display: flex; gap: 18px; margin-top: 28px; color: #7a837e; font-size: 11px; }
 .shortcut-hint span { display: flex; align-items: center; gap: 4px; }
+
+.library-panel { margin-top: 34px; width: 100%; max-width: 560px; }
+.library-heading { text-transform: uppercase; letter-spacing: 1.5px; color: #7a837e; font-size: 11px; font-weight: 700; margin: 0 0 10px; }
+.library-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.library-item {
+  padding: 9px 14px; border-radius: 9px; border: 1px solid #d9ddd7; background: #fff;
+  color: #18201d; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s ease;
+}
+.library-item:hover { border-color: #b7c2bb; background: #f4f6f2; }
 
 .pages { display: flex; flex-direction: column; align-items: center; gap: 24px; padding: 32px 20px 80px; }
 .page-stage { display: contents; }
@@ -198,6 +213,7 @@ h1 { font: 700 clamp(30px, 4vw, 48px)/1.08 'Manrope', sans-serif; letter-spacing
   .tool { font-size: 0; padding: 0 9px; }
   .tool svg { width: 19px; height: 19px; }
   .divider { margin: 0 1px; }
+  .library-select { max-width: 120px; }
 }
 
 @media (max-width: 560px) {

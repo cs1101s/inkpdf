@@ -71,6 +71,9 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         Open PDF
       </label>
       <input id="file-input" type="file" accept="application/pdf,.pdf" />
+      <select id="library-select" class="library-select hidden">
+        <option value="" selected disabled>Course files…</option>
+      </select>
       <div class="divider"></div>
       <div class="tool-group" aria-label="Drawing tools">
         <button class="tool active" data-tool="pen" title="Pen (P)" aria-pressed="true">
@@ -132,6 +135,10 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <h1>Open a PDF and start writing.</h1>
       <p class="empty-copy">Your document stays on this device. Draw directly over any page with a mouse, pen, or touch.</p>
       <label class="primary-button" for="file-input">Choose a PDF</label>
+      <div class="library-panel hidden" id="library-panel">
+        <p class="library-heading">Course files</p>
+        <div class="library-list" id="library-list"></div>
+      </div>
       <div class="shortcut-hint"><span><kbd>1</kbd>–<kbd>8</kbd> colors</span><span><kbd>P</kbd> pen</span><span><kbd>T</kbd> paste text</span><span><kbd>E</kbd> shape erase</span><span><kbd>X</kbd> stroke erase</span></div>
     </section>
     <div class="loading hidden" id="loading"><span></span>Rendering document…</div>
@@ -143,6 +150,9 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 `
 
 const input = document.querySelector<HTMLInputElement>('#file-input')!
+const librarySelect = document.querySelector<HTMLSelectElement>('#library-select')!
+const libraryPanel = document.querySelector<HTMLDivElement>('#library-panel')!
+const libraryList = document.querySelector<HTMLDivElement>('#library-list')!
 const pages = document.querySelector<HTMLDivElement>('#pages')!
 const emptyState = document.querySelector<HTMLElement>('#empty-state')!
 const loading = document.querySelector<HTMLDivElement>('#loading')!
@@ -341,7 +351,7 @@ function makeDrawable(canvas: HTMLCanvasElement) {
   }
 }
 
-async function renderPdf(file: File) {
+function resetViewerForLoad() {
   pageAnnotationControllers.length = 0
   pageSlideNumbers.length = 0
   pendingTextInsertion = null
@@ -349,6 +359,10 @@ async function renderPdf(file: File) {
   pages.replaceChildren()
   emptyState.classList.add('hidden')
   loading.classList.remove('hidden')
+}
+
+async function renderPdf(file: File) {
+  resetViewerForLoad()
   fileStatus.textContent = file.name
   fileStatus.title = file.name
 
@@ -434,6 +448,77 @@ input.addEventListener('change', () => {
   const file = input.files?.[0]
   if (file) void renderPdf(file)
   input.value = ''
+})
+
+type LibraryEntry = { title: string; url: string }
+
+function titleFromFilename(file: string) {
+  const name = file.split('/').pop() ?? file
+  return name.replace(/\.pdf$/i, '').replace(/[-_]+/g, ' ').trim() || name
+}
+
+async function loadLibrary(): Promise<LibraryEntry[]> {
+  const manifestPath = document.querySelector('meta[name="inkpdf-library"]')?.getAttribute('content') || 'pdfs/index.json'
+  try {
+    const manifestUrl = new URL(manifestPath, document.baseURI)
+    const response = await fetch(manifestUrl)
+    if (!response.ok) return []
+    const entries = await response.json()
+    if (!Array.isArray(entries)) return []
+    return entries.flatMap((entry): LibraryEntry[] => {
+      const file = typeof entry === 'string' ? entry : entry?.file
+      if (typeof file !== 'string' || !file) return []
+      const title = (typeof entry === 'object' && typeof entry.title === 'string' && entry.title) || titleFromFilename(file)
+      return [{ title, url: new URL(file, manifestUrl).toString() }]
+    })
+  } catch (error) {
+    console.warn('No course PDF library found.', error)
+    return []
+  }
+}
+
+async function openLibraryEntry(entry: LibraryEntry) {
+  resetViewerForLoad()
+  fileStatus.textContent = `Loading ${entry.title}…`
+  try {
+    const response = await fetch(entry.url)
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+    const blob = await response.blob()
+    const file = new File([blob], `${entry.title}.pdf`, { type: 'application/pdf' })
+    await renderPdf(file)
+  } catch (error) {
+    pages.innerHTML = `<div class="error">Could not load "${entry.title}" from the course library.</div>`
+    loading.classList.add('hidden')
+    fileStatus.textContent = 'No document open'
+    console.error(error)
+  }
+}
+
+void loadLibrary().then((entries) => {
+  if (!entries.length) return
+
+  entries.forEach((entry, index) => {
+    const option = document.createElement('option')
+    option.value = String(index)
+    option.textContent = entry.title
+    librarySelect.append(option)
+  })
+  librarySelect.classList.remove('hidden')
+  librarySelect.addEventListener('change', () => {
+    const entry = entries[Number(librarySelect.value)]
+    librarySelect.selectedIndex = 0
+    if (entry) void openLibraryEntry(entry)
+  })
+
+  entries.forEach((entry) => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'library-item'
+    button.textContent = entry.title
+    button.addEventListener('click', () => void openLibraryEntry(entry))
+    libraryList.append(button)
+  })
+  libraryPanel.classList.remove('hidden')
 })
 
 document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => {
