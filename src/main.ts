@@ -866,19 +866,23 @@ window.addEventListener('paste', (event) => {
 function currentPageIndex() {
   const stages = [...pages.querySelectorAll<HTMLElement>('.page-stage')]
   if (!stages.length) return -1
-  const viewportCenter = window.innerHeight / 2
-  let closestIndex = 0
-  let closestDistance = Number.POSITIVE_INFINITY
+  const viewportHeight = window.innerHeight
+  let bestIndex = 0
+  let mostVisible = -1
   stages.forEach((stage, index) => {
     const page = stage.querySelector<HTMLElement>('.page-wrap')!
     const rect = page.getBoundingClientRect()
-    const distance = Math.abs(rect.top + rect.height / 2 - viewportCenter)
-    if (distance < closestDistance) {
-      closestDistance = distance
-      closestIndex = index
+    const visible = Math.max(0, Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0))
+    // >= so that on a tie (e.g. two short pages both fully in view) the later page wins — the
+    // "closest to viewport center" heuristic this replaced could otherwise settle on the earlier
+    // page even though the user had scrolled past it, silently sourcing ink-continuation copies
+    // (see copyFrom) from the wrong page.
+    if (visible >= mostVisible) {
+      mostVisible = visible
+      bestIndex = index
     }
   })
-  return closestIndex
+  return bestIndex
 }
 
 function changePage(direction: -1 | 1) {
@@ -886,9 +890,13 @@ function changePage(direction: -1 | 1) {
   const sourceIndex = currentPageIndex()
   const targetIndex = adjacentPageIndex(sourceIndex, direction, stages.length)
   if (targetIndex < 0) return
+  // Build-sequence pages (same detected footer slide number) are one logical slide split across
+  // several reveal steps. Ink drawn on any step of it should be visible on every other step of that
+  // same slide, not just the ones reached by advancing — so this copies in both directions, not just
+  // forward. copyFrom() already refuses to touch a target that has its own annotations, so a page
+  // that was drawn on directly always keeps its own ink rather than being overwritten.
   if (
-    direction === 1
-    && targetIndex !== sourceIndex
+    targetIndex !== sourceIndex
     && isContinuationSlide(pageSlideNumbers[sourceIndex], pageSlideNumbers[targetIndex])
     && pageAnnotationControllers[targetIndex].canReceiveContinuationCopy()
   ) {
