@@ -17,6 +17,7 @@ import {
 import { adjacentPageIndex, detectSlideNumber, fullscreenPageWidth, isContinuationSlide } from './viewer'
 import { openPresenterDashboard, type NormalizedPoint, type PresenterDashboard } from './presenter'
 import { frameAverageColor, isHiddenAnnotation, isUsableLink, normalizedLinkRect, regionDiffersFromBackground, type NormalizedRect, type PageLink } from './links'
+import { startMirrorReceiver } from './mirror'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -50,6 +51,7 @@ type AnnotationController = {
 }
 const pageAnnotationControllers: AnnotationController[] = []
 const pageSlideNumbers: Array<string | null> = []
+const pageLinksByIndex: PageLink[][] = []
 type ManagedScreen = { availLeft: number; availTop: number; availWidth: number; availHeight: number; isPrimary?: boolean; label?: string }
 type ScreenDetailsLike = { screens: ManagedScreen[]; currentScreen: ManagedScreen; addEventListener?: (type: string, listener: () => void) => void }
 let presenterDashboard: PresenterDashboard | null = null
@@ -155,6 +157,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <button type="button" id="resume-fullscreen-button">Resume fullscreen <kbd>F</kbd></button>
       </div>
     </div>
+    <video class="audience-mirror hidden" id="audience-mirror" autoplay playsinline muted></video>
   </main>
 `
 
@@ -365,6 +368,7 @@ function makeDrawable(canvas: HTMLCanvasElement) {
 function resetViewerForLoad() {
   pageAnnotationControllers.length = 0
   pageSlideNumbers.length = 0
+  pageLinksByIndex.length = 0
   pendingTextInsertion = null
   pasteHint.classList.add('hidden')
   pages.replaceChildren()
@@ -545,6 +549,7 @@ async function renderPdf(file: File) {
       // on THIS specific rendered page.
       const pageLinks = await resolvePageLinks(pdfDocument, page, baseViewport)
       const visibleLinks = pageLinks.filter((link) => linkRectHasRenderedContent(pdfCanvas, link.rect))
+      pageLinksByIndex[pageNumber - 1] = visibleLinks
       if (visibleLinks.length) pageWrap.append(buildLinksLayer(visibleLinks, pageNumber))
     }
   } catch (error) {
@@ -744,7 +749,9 @@ function buildPresenterDashboard(popup: Window) {
     drawEnd: () => pageAnnotationControllers[currentPageIndex()]?.drawEnd(),
     pasteText: (text) => pendingTextInsertion?.(text),
     swapDisplays: () => void swapPresenterDisplays(),
+    focusAudience: () => window.focus(),
     endPresentation: () => void endPresentation(),
+    linksForPage: (index) => pageLinksByIndex[index] ?? [],
   })
 }
 
@@ -947,3 +954,15 @@ window.addEventListener('keydown', (event) => {
 
 setTool('pen')
 void primeScreenDetails()
+
+const audienceMirror = document.querySelector<HTMLVideoElement>('#audience-mirror')!
+startMirrorReceiver(
+  (stream) => {
+    audienceMirror.srcObject = stream
+    audienceMirror.classList.remove('hidden')
+  },
+  () => {
+    audienceMirror.classList.add('hidden')
+    audienceMirror.srcObject = null
+  },
+)
