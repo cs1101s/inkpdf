@@ -1,5 +1,5 @@
-export type DrawingTool = 'pen' | 'text' | 'eraser-pixel' | 'eraser-stroke'
-export type RenderedTool = Exclude<DrawingTool, 'eraser-stroke' | 'text'>
+export type DrawingTool = 'pen' | 'text' | 'eraser-pixel' | 'eraser-stroke' | 'laser'
+export type RenderedTool = Exclude<DrawingTool, 'eraser-stroke' | 'text' | 'laser'>
 export type Point = { x: number; y: number }
 export type Stroke = { tool: RenderedTool; color: string; width: number; points: Point[] }
 export type TextAnnotation = { text: string; color: string; fontSize: number; point: Point }

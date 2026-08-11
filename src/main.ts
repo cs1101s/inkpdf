@@ -34,6 +34,7 @@ const savedColors = JSON.parse(localStorage.getItem('inkpdf-colors') ?? 'null') 
 const colors = defaultColors.map((color, index) => ({ ...color, value: savedColors?.[index] ?? color.value }))
 
 let activeTool: DrawingTool = 'pen'
+let toolBeforeLaser: DrawingTool = 'pen'
 let activeColorIndex = 0
 let penWidth = Number(localStorage.getItem('inkpdf-pen-width') ?? 3)
 let currentObjectUrl: string | null = null
@@ -80,19 +81,23 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <div class="tool-group" aria-label="Drawing tools">
         <button class="tool active" data-tool="pen" title="Pen (P)" aria-pressed="true">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20Zm9-12.5 3.5 3.5"/></svg>
-          Pen <kbd>P</kbd>
+          <kbd>P</kbd>
         </button>
         <button class="tool" data-tool="text" title="Paste text annotation (T)" aria-pressed="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14M12 5v14M8 19h8"/></svg>
-          Text <kbd>T</kbd>
+          <kbd>T</kbd>
         </button>
         <button class="tool" data-tool="eraser-pixel" title="Shape eraser (E)" aria-pressed="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 18.5-3-3 9-10a2 2 0 0 1 3 0l2 2a2 2 0 0 1 0 3l-7 8h-4Zm-1-5 5 5M10 20h10"/></svg>
-          Shape erase <kbd>E</kbd>
+          <kbd>E</kbd>
         </button>
         <button class="tool" data-tool="eraser-stroke" title="Erase entire stroke (X)" aria-pressed="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M8 4 5 7l3 3M7 16c2-4 8-5 10-1 1 3-2 5-5 5-3 0-5-1-6-3"/></svg>
-          Stroke erase <kbd>X</kbd>
+          <kbd>X</kbd>
+        </button>
+        <button class="tool" data-tool="laser" title="Laser pointer (L)" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity=".45"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2"/></svg>
+          <kbd>L</kbd>
         </button>
         <button class="tool danger-tool" id="erase-slide-button" title="Erase annotations on this slide (Shift+Delete)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>
@@ -147,6 +152,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="pages" id="pages"></div>
     <div class="paste-hint hidden" id="paste-hint">Insertion point set — press <kbd>Ctrl</kbd> + <kbd>V</kbd></div>
     <div class="presenter-hint hidden" id="presenter-hint"></div>
+    <div class="laser-pointer" id="laser-pointer" aria-hidden="true"></div>
     <button class="start-presenter hidden" id="start-presenter">Start audience fullscreen</button>
     <div class="fullscreen-resume hidden" id="fullscreen-resume">
       <div class="fullscreen-resume-card">
@@ -177,8 +183,10 @@ const startPresenterButton = document.querySelector<HTMLButtonElement>('#start-p
 const fullscreenResume = document.querySelector<HTMLDivElement>('#fullscreen-resume')!
 const resumeFullscreenButton = document.querySelector<HTMLButtonElement>('#resume-fullscreen-button')!
 const eraseSlideButton = document.querySelector<HTMLButtonElement>('#erase-slide-button')!
+const laserPointer = document.querySelector<HTMLDivElement>('#laser-pointer')!
 
 function setTool(tool: DrawingTool) {
+  if (tool !== 'laser' && activeTool !== 'laser') toolBeforeLaser = tool
   activeTool = tool
   if (tool !== 'text') {
     pendingTextInsertion = null
@@ -190,6 +198,11 @@ function setTool(tool: DrawingTool) {
     button.setAttribute('aria-pressed', String(selected))
   })
   pages.dataset.tool = tool
+  if (tool !== 'laser') laserPointer.classList.remove('visible')
+}
+
+function toggleLaser() {
+  setTool(activeTool === 'laser' ? toolBeforeLaser : 'laser')
 }
 
 function setColor(index: number) {
@@ -270,6 +283,7 @@ function makeDrawable(canvas: HTMLCanvasElement) {
   }
 
   const startAt = (p: Point) => {
+    if (activeTool === 'laser') return
     drawing = true
     acceptsContinuationCopy = false
     if (activeTool === 'text') {
@@ -319,9 +333,17 @@ function makeDrawable(canvas: HTMLCanvasElement) {
 
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.pointerType === 'mouse') return
+    if (activeTool === 'laser') return
     canvas.setPointerCapture(event.pointerId)
     startAt(point(event))
   })
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (activeTool !== 'laser') return
+    laserPointer.style.transform = `translate(${event.clientX}px, ${event.clientY}px)`
+    laserPointer.classList.add('visible')
+  })
+  canvas.addEventListener('pointerleave', () => laserPointer.classList.remove('visible'))
 
   canvas.addEventListener('pointermove', (event) => {
     if (!drawing) return
@@ -940,6 +962,7 @@ window.addEventListener('keydown', (event) => {
   if (event.key.toLowerCase() === 't') setTool('text')
   if (event.key.toLowerCase() === 'e') setTool('eraser-pixel')
   if (event.key.toLowerCase() === 'x') setTool('eraser-stroke')
+  if (event.key.toLowerCase() === 'l') toggleLaser()
   if (event.key.toLowerCase() === 'f') void toggleFullscreen()
   const colorIndex = colors.findIndex((item) => item.key === event.key)
   if (colorIndex >= 0) setColor(colorIndex)
