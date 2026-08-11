@@ -16,6 +16,7 @@ import {
 } from './annotation'
 import { adjacentPageIndex, detectSlideNumber, fullscreenPageWidth, isContinuationSlide } from './viewer'
 import { openPresenterDashboard, type NormalizedPoint, type PresenterDashboard } from './presenter'
+import { frameAverageColor, isHiddenAnnotation, isUsableLink, normalizedLinkRect, regionDiffersFromBackground, type NormalizedRect, type PageLink } from './links'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -58,6 +59,7 @@ let audienceScreen: ManagedScreen | null = null
 let controllerScreen: ManagedScreen | null = null
 let swappingDisplays = false
 let displaySwitchPending = false
+let intentionalFullscreenExit = false
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <header class="toolbar">
@@ -146,6 +148,13 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="paste-hint hidden" id="paste-hint">Insertion point set — press <kbd>Ctrl</kbd> + <kbd>V</kbd></div>
     <div class="presenter-hint hidden" id="presenter-hint"></div>
     <button class="start-presenter hidden" id="start-presenter">Start audience fullscreen</button>
+    <div class="fullscreen-resume hidden" id="fullscreen-resume">
+      <div class="fullscreen-resume-card">
+        <p>Left fullscreen</p>
+        <span>Probably a link opening in a new tab.</span>
+        <button type="button" id="resume-fullscreen-button">Resume fullscreen <kbd>F</kbd></button>
+      </div>
+    </div>
   </main>
 `
 
@@ -165,6 +174,8 @@ const penWidthOutput = document.querySelector<HTMLOutputElement>('#pen-width-out
 const pasteHint = document.querySelector<HTMLDivElement>('#paste-hint')!
 const presenterHint = document.querySelector<HTMLDivElement>('#presenter-hint')!
 const startPresenterButton = document.querySelector<HTMLButtonElement>('#start-presenter')!
+const fullscreenResume = document.querySelector<HTMLDivElement>('#fullscreen-resume')!
+const resumeFullscreenButton = document.querySelector<HTMLButtonElement>('#resume-fullscreen-button')!
 const eraseSlideButton = document.querySelector<HTMLButtonElement>('#erase-slide-button')!
 
 function setTool(tool: DrawingTool) {
@@ -361,6 +372,95 @@ function resetViewerForLoad() {
   loading.classList.remove('hidden')
 }
 
+async function resolvePageLinks(
+  pdfDocument: pdfjsLib.PDFDocumentProxy,
+  page: pdfjsLib.PDFPageProxy,
+  baseViewport: pdfjsLib.PageViewport,
+): Promise<PageLink[]> {
+  const annotations = await page.getAnnotations({ intent: 'display' }).catch(() => [])
+  const links: PageLink[] = []
+  for (const annotation of annotations) {
+    if (annotation.subtype !== 'Link') continue
+    if (isHiddenAnnotation(annotation.annotationFlags)) continue
+    const [x1, y1, x2, y2] = annotation.rect
+    const [vx1, vy1] = baseViewport.convertToViewportPoint(x1, y1)
+    const [vx2, vy2] = baseViewport.convertToViewportPoint(x2, y2)
+    const rect = normalizedLinkRect([vx1, vy1, vx2, vy2], baseViewport.width, baseViewport.height)
+    if (!rect) continue
+    const url: string | null = typeof annotation.url === 'string' ? annotation.url : null
+    let pageIndex: number | null = null
+    if (!url && annotation.dest) {
+      try {
+        const dest = typeof annotation.dest === 'string' ? await pdfDocument.getDestination(annotation.dest) : annotation.dest
+        const ref = dest?.[0]
+        if (ref !== undefined && ref !== null) pageIndex = await pdfDocument.getPageIndex(ref)
+      } catch (error) {
+        console.warn('Could not resolve an internal PDF link.', error)
+      }
+    }
+    const link: PageLink = { rect, url, pageIndex }
+    if (isUsableLink(link)) links.push(link)
+  }
+  return links
+}
+
+function buildLinksLayer(links: PageLink[], pageNumber: number) {
+  const layer = document.createElement('div')
+  layer.className = 'links-layer'
+  links.forEach((link) => {
+    const anchor = document.createElement('a')
+    anchor.style.left = `${link.rect.x * 100}%`
+    anchor.style.top = `${link.rect.y * 100}%`
+    anchor.style.width = `${link.rect.width * 100}%`
+    anchor.style.height = `${link.rect.height * 100}%`
+    if (link.url) {
+      anchor.href = link.url
+      anchor.target = '_blank'
+      anchor.rel = 'noopener noreferrer'
+      anchor.title = 'Open link (new tab)'
+    } else if (link.pageIndex !== null) {
+      const targetIndex = link.pageIndex
+      anchor.href = '#'
+      anchor.title = `Jump to page ${targetIndex + 1}`
+      anchor.addEventListener('click', (event) => {
+        event.preventDefault()
+        goToPage(targetIndex)
+      })
+    }
+    layer.append(anchor)
+  })
+  layer.setAttribute('aria-label', `Links on page ${pageNumber}`)
+  return layer
+}
+
+function linkRectHasRenderedContent(canvas: HTMLCanvasElement, rect: NormalizedRect): boolean {
+  const context = canvas.getContext('2d')!
+  const x = Math.max(0, Math.round(rect.x * canvas.width))
+  const y = Math.max(0, Math.round(rect.y * canvas.height))
+  const width = Math.min(canvas.width - x, Math.max(1, Math.round(rect.width * canvas.width)))
+  const height = Math.min(canvas.height - y, Math.max(1, Math.round(rect.height * canvas.height)))
+  if (width <= 0 || height <= 0) return false
+
+  try {
+    // Sample the background locally, from the ring of pixels immediately surrounding the link's own
+    // rect — not from a fixed spot like a page corner, which real slide templates routinely cover
+    // with a logo, banner, or footer graphic and would otherwise poison the reference color.
+    const margin = 4
+    const outerX = Math.max(0, x - margin)
+    const outerY = Math.max(0, y - margin)
+    const outerWidth = Math.min(canvas.width, x + width + margin) - outerX
+    const outerHeight = Math.min(canvas.height, y + height + margin) - outerY
+    const outer = context.getImageData(outerX, outerY, outerWidth, outerHeight)
+    const background = frameAverageColor(outer.data, outerWidth, outerHeight, x - outerX, y - outerY, width, height)
+
+    const inner = context.getImageData(x, y, width, height)
+    return regionDiffersFromBackground(inner.data, background)
+  } catch (error) {
+    console.warn('Could not sample a PDF link’s rendered content; showing it by default.', error)
+    return true
+  }
+}
+
 async function renderPdf(file: File) {
   resetViewerForLoad()
   fileStatus.textContent = file.name
@@ -435,6 +535,17 @@ async function renderPdf(file: File) {
         canvasContext: pdfCanvas.getContext('2d')!,
         viewport: renderViewport,
       }).promise
+
+      // Progressive-reveal decks (PowerPoint/Keynote builds) export one PDF page per reveal step, but
+      // commonly carry the same link annotation on every one of those pages regardless of whether the
+      // linked object has appeared yet, been temporarily hidden, or already been removed again — the
+      // Hidden/NoView flags aren't reliably set for this, and a "same footer number = one build" grouping
+      // can't tell add-then-remove builds apart from simple accumulation. So judge it directly from what
+      // was actually painted: only keep a link hotspot where its rect has real (non-background) content
+      // on THIS specific rendered page.
+      const pageLinks = await resolvePageLinks(pdfDocument, page, baseViewport)
+      const visibleLinks = pageLinks.filter((link) => linkRectHasRenderedContent(pdfCanvas, link.rect))
+      if (visibleLinks.length) pageWrap.append(buildLinksLayer(visibleLinks, pageNumber))
     }
   } catch (error) {
     pages.innerHTML = `<div class="error">This PDF could not be opened. Please try another file.</div>`
@@ -578,6 +689,18 @@ function showPresenterHint(message: string) {
   presenterHintTimer = window.setTimeout(() => presenterHint.classList.add('hidden'), 5000)
 }
 
+function showFullscreenResumeOverlay() {
+  fullscreenResume.classList.remove('hidden')
+}
+function hideFullscreenResumeOverlay() {
+  fullscreenResume.classList.add('hidden')
+}
+resumeFullscreenButton.addEventListener('click', () => { hideFullscreenResumeOverlay(); void toggleFullscreen() })
+fullscreenResume.addEventListener('click', (event) => { if (event.target === fullscreenResume) hideFullscreenResumeOverlay() })
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !fullscreenResume.classList.contains('hidden')) hideFullscreenResumeOverlay()
+})
+
 async function swapPresenterDisplays() {
   if (!presenterDashboard || !audienceScreen || !controllerScreen) return
   swappingDisplays = true
@@ -632,9 +755,13 @@ async function endPresentation() {
   displaySwitchPending = false
   audienceScreen = null
   controllerScreen = null
+  intentionalFullscreenExit = true
   if (document.fullscreenElement) await document.exitFullscreen()
   dashboard?.close()
   window.focus()
+  // fullscreenchange fires around the exitFullscreen() transition; hold the flag a beat longer
+  // so it's still true when that handler runs, then release it for future unexpected exits.
+  window.setTimeout(() => { intentionalFullscreenExit = false }, 300)
 }
 
 async function toggleFullscreen() {
@@ -715,12 +842,17 @@ async function primeScreenDetails() {
 fullscreenButton.addEventListener('click', () => void toggleFullscreen())
 startPresenterButton.addEventListener('click', () => void toggleFullscreen())
 document.addEventListener('fullscreenchange', () => {
-  fullscreenButton.setAttribute('aria-pressed', String(Boolean(document.fullscreenElement)))
-  if (!document.fullscreenElement && !swappingDisplays && !displaySwitchPending && presenterDashboard) {
+  const isFullscreen = Boolean(document.fullscreenElement)
+  fullscreenButton.setAttribute('aria-pressed', String(isFullscreen))
+  if (isFullscreen) { hideFullscreenResumeOverlay(); return }
+  if (swappingDisplays || displaySwitchPending) return
+  if (presenterDashboard) {
     presenterDashboard.close()
     presenterDashboard = null
     startPresenterButton.classList.add('hidden')
+    return
   }
+  if (!intentionalFullscreenExit) showFullscreenResumeOverlay()
 })
 
 window.addEventListener('paste', (event) => {
