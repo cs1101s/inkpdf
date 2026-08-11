@@ -754,6 +754,7 @@ function buildPresenterDashboard(popup: Window) {
     currentIndex: currentPageIndex,
     canvases: pageCanvases,
     colors: colors.map(({ value }) => value),
+    colorKeys: colors.map(({ key }) => key),
     penWidth: () => penWidth,
     navigate: changePage,
     navigateTo: goToPage,
@@ -765,6 +766,8 @@ function buildPresenterDashboard(popup: Window) {
     drawMove: (points) => pageAnnotationControllers[currentPageIndex()]?.drawMove(points),
     drawEnd: () => pageAnnotationControllers[currentPageIndex()]?.drawEnd(),
     pasteText: (text) => pendingTextInsertion?.(text),
+    toggleLaser,
+    toggleFullscreen: () => void toggleFullscreen(),
     swapDisplays: () => void swapPresenterDisplays(),
     endPresentation: () => void endPresentation(),
   })

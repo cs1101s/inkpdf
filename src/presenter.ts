@@ -27,6 +27,7 @@ type DashboardOptions = {
   currentIndex: () => number
   canvases: (index: number) => CanvasPair | null
   colors: string[]
+  colorKeys: string[]
   penWidth: () => number
   navigate: (direction: -1 | 1) => void
   navigateTo: (index: number) => void
@@ -38,6 +39,8 @@ type DashboardOptions = {
   drawMove: (points: NormalizedPoint[]) => void
   drawEnd: () => void
   pasteText: (text: string) => void
+  toggleLaser: () => void
+  toggleFullscreen: () => void
   swapDisplays: () => void
   endPresentation: () => void
 }
@@ -183,16 +186,36 @@ export function openPresenterDashboard(presenterWindow: Window, options: Dashboa
   }
   makeResizable(doc.querySelector<HTMLElement>('#main-splitter')!, '--main-size')
   makeResizable(doc.querySelector<HTMLElement>('#slide-splitter')!, '--live-size')
-  doc.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => button.onclick = () => { options.selectTool(button.dataset.tool as Parameters<DashboardOptions['selectTool']>[0]); doc.querySelectorAll('[data-tool]').forEach((item) => item.classList.toggle('active', item === button)) })
-  doc.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((button) => button.onclick = () => { const index = Number(button.dataset.color); options.selectColor(index); doc.querySelectorAll('[data-color]').forEach((item) => item.classList.toggle('active', item === button)) })
+  const selectTool = (tool: Parameters<DashboardOptions['selectTool']>[0]) => {
+    options.selectTool(tool)
+    doc.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => button.classList.toggle('active', button.dataset.tool === tool))
+  }
+  const selectColor = (index: number) => {
+    options.selectColor(index)
+    doc.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((button) => button.classList.toggle('active', Number(button.dataset.color) === index))
+  }
+  doc.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => button.onclick = () => selectTool(button.dataset.tool as Parameters<DashboardOptions['selectTool']>[0]))
+  doc.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((button) => button.onclick = () => selectColor(Number(button.dataset.color)))
   const size = doc.querySelector<HTMLInputElement>('#size')!; const output = doc.querySelector<HTMLOutputElement>('output')!
   size.oninput = () => { output.value = size.value; options.setPenWidth(Number(size.value)) }
   presenterWindow.addEventListener('keydown', (event) => {
     const target = event.target as HTMLElement | null
-    if (target?.matches('input, textarea, select, [contenteditable="true"]')) return
-    if (event.key === 'PageDown' || event.key === 'ArrowDown') { event.preventDefault(); options.navigate(1) }
-    if (event.key === 'PageUp' || event.key === 'ArrowUp') { event.preventDefault(); options.navigate(-1) }
-    if (event.shiftKey && event.key === 'Delete') { event.preventDefault(); options.eraseSlide() }
+    const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]')
+    if (!isEditing && event.shiftKey && event.key === 'Delete') { event.preventDefault(); options.eraseSlide(); return }
+    if (!isEditing && ['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
+      event.preventDefault()
+      options.navigate(event.key === 'PageDown' || event.key === 'ArrowDown' ? 1 : -1)
+      return
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    if (event.key.toLowerCase() === 'p') selectTool('pen')
+    if (event.key.toLowerCase() === 't') selectTool('text')
+    if (event.key.toLowerCase() === 'e') selectTool('eraser-pixel')
+    if (event.key.toLowerCase() === 'x') selectTool('eraser-stroke')
+    if (event.key.toLowerCase() === 'l') options.toggleLaser()
+    if (event.key.toLowerCase() === 'f') options.toggleFullscreen()
+    const colorIndex = options.colorKeys.indexOf(event.key)
+    if (colorIndex >= 0) selectColor(colorIndex)
   })
   render()
   return { window: presenterWindow, close: () => { presenterWindow.cancelAnimationFrame(animationFrame); presenterWindow.clearInterval(clockTimer); thumbnailObserver.disconnect(); presenterWindow.close() } }
