@@ -1,4 +1,4 @@
-# InkPDF POC
+# InkPDF
 
 A local-first PDF viewer with freehand annotations. PDFs are opened from your
 computer and rendered in the browser; nothing is uploaded.
