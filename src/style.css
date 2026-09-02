@@ -146,6 +146,7 @@ h1 { font: 700 clamp(30px, 4vw, 48px)/1.08 'Manrope', sans-serif; letter-spacing
 }
 .pdf-canvas, .ink-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .ink-canvas { z-index: 2; touch-action: none; cursor: crosshair; }
+.ink-canvas.pen-cursor-active { cursor: none; }
 .pages[data-tool^="eraser"] .ink-canvas { cursor: cell; }
 .pages[data-tool="text"] .ink-canvas { cursor: text; }
 .pages[data-tool="laser"] .ink-canvas { cursor: none; }
@@ -156,6 +157,24 @@ h1 { font: 700 clamp(30px, 4vw, 48px)/1.08 'Manrope', sans-serif; letter-spacing
   opacity: 0; transition: opacity .08s ease;
 }
 .laser-pointer.visible { opacity: 1; }
+.pen-cursor {
+  --pen-color: #f03f3f;
+  --pen-size: 3px;
+  position: fixed; z-index: 61; left: 0; top: 0; width: 30px; height: 30px;
+  color: var(--pen-color); pointer-events: none; opacity: 0;
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #000);
+}
+.pen-cursor::before, .pen-cursor::after {
+  content: ''; position: absolute; left: 50%; top: 50%; background: currentColor;
+  transform: translate(-50%, -50%);
+}
+.pen-cursor::before { width: 26px; height: 1px; }
+.pen-cursor::after { width: 1px; height: 26px; }
+.pen-cursor span {
+  position: absolute; left: 50%; top: 50%; width: max(2px, var(--pen-size)); height: max(2px, var(--pen-size));
+  border-radius: 50%; background: currentColor; transform: translate(-50%, -50%);
+}
+.pen-cursor.visible { opacity: 1; }
 .links-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 .links-layer a { position: absolute; display: block; pointer-events: auto; cursor: pointer; border-radius: 3px; }
 .links-layer a:hover, .links-layer a:focus-visible { outline: 2px solid rgba(37, 99, 235, .55); outline-offset: 1px; background: rgba(37, 99, 235, .08); }

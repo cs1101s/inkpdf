@@ -202,12 +202,14 @@ export function openPresenterDashboard(presenterWindow: Window, options: Dashboa
     const target = event.target as HTMLElement | null
     const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]')
     if (!isEditing && event.shiftKey && event.key === 'Delete') { event.preventDefault(); options.eraseSlide(); return }
-    if (!isEditing && ['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
+    if (!isEditing && ['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft'].includes(event.key)) {
       event.preventDefault()
-      options.navigate(event.key === 'PageDown' || event.key === 'ArrowDown' ? 1 : -1)
+      options.navigate(['PageDown', 'ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1)
       return
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return
+    if (event.code === 'NumpadAdd') { event.preventDefault(); selectTool('pen'); return }
+    if (event.code === 'NumpadSubtract') { event.preventDefault(); selectTool('eraser-stroke'); return }
     if (event.key.toLowerCase() === 'p') selectTool('pen')
     if (event.key.toLowerCase() === 't') selectTool('text')
     if (event.key.toLowerCase() === 'e') selectTool('eraser-pixel')

@@ -21,14 +21,14 @@ import { frameAverageColor, isHiddenAnnotation, isUsableLink, normalizedLinkRect
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 
 const defaultColors = [
-  { key: '1', name: 'Red', value: '#ef4444' },
-  { key: '2', name: 'Blue', value: '#2563eb' },
-  { key: '3', name: 'Green', value: '#16a34a' },
-  { key: '4', name: 'Black', value: '#111827' },
-  { key: '5', name: 'Orange', value: '#f97316' },
-  { key: '6', name: 'Purple', value: '#9333ea' },
-  { key: '7', name: 'Pink', value: '#ec4899' },
-  { key: '8', name: 'White', value: '#ffffff' },
+  { key: '1', name: 'Red', value: '#f03f3f' },
+  { key: '2', name: 'Blue', value: '#1f62f2' },
+  { key: '3', name: 'Green', value: '#12aa48' },
+  { key: '4', name: 'Brown', value: '#8b4513' },
+  { key: '5', name: 'Orange', value: '#fb6d10' },
+  { key: '6', name: 'Purple', value: '#9630ee' },
+  { key: '7', name: 'Pink', value: '#f04499' },
+  { key: '8', name: 'Maroon', value: '#8f1537' },
 ]
 const savedColors = JSON.parse(localStorage.getItem('inkpdf-colors') ?? 'null') as string[] | null
 const colors = defaultColors.map((color, index) => ({ ...color, value: savedColors?.[index] ?? color.value }))
@@ -61,6 +61,8 @@ let controllerScreen: ManagedScreen | null = null
 let swappingDisplays = false
 let displaySwitchPending = false
 let intentionalFullscreenExit = false
+let activePageIndex = 0
+let syncingFullscreenPosition = false
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <header class="toolbar">
@@ -153,6 +155,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="paste-hint hidden" id="paste-hint">Insertion point set — press <kbd>Ctrl</kbd> + <kbd>V</kbd></div>
     <div class="presenter-hint hidden" id="presenter-hint"></div>
     <div class="laser-pointer" id="laser-pointer" aria-hidden="true"></div>
+    <div class="pen-cursor" id="pen-cursor" aria-hidden="true"><span></span></div>
     <button class="start-presenter hidden" id="start-presenter">Start audience fullscreen</button>
     <div class="fullscreen-resume hidden" id="fullscreen-resume">
       <div class="fullscreen-resume-card">
@@ -184,6 +187,32 @@ const fullscreenResume = document.querySelector<HTMLDivElement>('#fullscreen-res
 const resumeFullscreenButton = document.querySelector<HTMLButtonElement>('#resume-fullscreen-button')!
 const eraseSlideButton = document.querySelector<HTMLButtonElement>('#erase-slide-button')!
 const laserPointer = document.querySelector<HTMLDivElement>('#laser-pointer')!
+const penCursor = document.querySelector<HTMLDivElement>('#pen-cursor')!
+let penCursorCanvas: HTMLCanvasElement | null = null
+
+function hidePenCursor() {
+  penCursor.classList.remove('visible')
+  penCursorCanvas?.classList.remove('pen-cursor-active')
+  penCursorCanvas = null
+}
+
+function updatePenCursor(event: PointerEvent, canvas: HTMLCanvasElement) {
+  if (event.pointerType !== 'pen' || activeTool !== 'pen') {
+    if (penCursorCanvas === canvas) hidePenCursor()
+    return
+  }
+  const coalescedEvents = event.getCoalescedEvents?.() ?? []
+  const latest = coalescedEvents.at(-1) ?? event
+  if (penCursorCanvas !== canvas) {
+    penCursorCanvas?.classList.remove('pen-cursor-active')
+    penCursorCanvas = canvas
+    canvas.classList.add('pen-cursor-active')
+  }
+  penCursor.style.setProperty('--pen-color', colors[activeColorIndex].value)
+  penCursor.style.setProperty('--pen-size', `${penWidth}px`)
+  penCursor.style.transform = `translate(${latest.clientX}px, ${latest.clientY}px) translate(-50%, -50%)`
+  penCursor.classList.add('visible')
+}
 
 function setTool(tool: DrawingTool) {
   if (tool !== 'laser' && activeTool !== 'laser') toolBeforeLaser = tool
@@ -199,6 +228,7 @@ function setTool(tool: DrawingTool) {
   })
   pages.dataset.tool = tool
   if (tool !== 'laser') laserPointer.classList.remove('visible')
+  if (tool !== 'pen') hidePenCursor()
 }
 
 function toggleLaser() {
@@ -334,16 +364,21 @@ function makeDrawable(canvas: HTMLCanvasElement) {
   canvas.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.pointerType === 'mouse') return
     if (activeTool === 'laser') return
+    updatePenCursor(event, canvas)
     canvas.setPointerCapture(event.pointerId)
     startAt(point(event))
   })
 
   canvas.addEventListener('pointermove', (event) => {
+    updatePenCursor(event, canvas)
     if (activeTool !== 'laser') return
     laserPointer.style.transform = `translate(${event.clientX}px, ${event.clientY}px)`
     laserPointer.classList.add('visible')
   })
-  canvas.addEventListener('pointerleave', () => laserPointer.classList.remove('visible'))
+  canvas.addEventListener('pointerleave', () => {
+    laserPointer.classList.remove('visible')
+    if (penCursorCanvas === canvas) hidePenCursor()
+  })
 
   canvas.addEventListener('pointermove', (event) => {
     if (!drawing) return
@@ -358,7 +393,10 @@ function makeDrawable(canvas: HTMLCanvasElement) {
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
   }
   canvas.addEventListener('pointerup', stop)
-  canvas.addEventListener('pointercancel', stop)
+  canvas.addEventListener('pointercancel', (event) => {
+    stop(event)
+    if (penCursorCanvas === canvas) hidePenCursor()
+  })
 
   return {
     clear,
@@ -385,6 +423,7 @@ function makeDrawable(canvas: HTMLCanvasElement) {
 }
 
 function resetViewerForLoad() {
+  activePageIndex = 0
   pageAnnotationControllers.length = 0
   pageSlideNumbers.length = 0
   pendingTextInsertion = null
@@ -781,7 +820,9 @@ async function endPresentation() {
   audienceScreen = null
   controllerScreen = null
   intentionalFullscreenExit = true
-  if (document.fullscreenElement) await document.exitFullscreen()
+  if (document.fullscreenElement) {
+    await document.exitFullscreen()
+  }
   dashboard?.close()
   window.focus()
   // fullscreenchange fires around the exitFullscreen() transition; hold the flag a beat longer
@@ -869,6 +910,14 @@ startPresenterButton.addEventListener('click', () => void toggleFullscreen())
 document.addEventListener('fullscreenchange', () => {
   const isFullscreen = Boolean(document.fullscreenElement)
   fullscreenButton.setAttribute('aria-pressed', String(isFullscreen))
+  // Fullscreen and normal mode scroll different elements (`pages` versus `window`). Keep one
+  // logical page and reposition the newly active scroller after the fullscreen layout settles.
+  syncingFullscreenPosition = true
+  const pageToRestore = activePageIndex
+  window.requestAnimationFrame(() => {
+    goToPage(pageToRestore)
+    window.requestAnimationFrame(() => { syncingFullscreenPosition = false })
+  })
   if (isFullscreen) { hideFullscreenResumeOverlay(); return }
   if (swappingDisplays || displaySwitchPending) return
   if (presenterDashboard) {
@@ -938,6 +987,9 @@ function goToPage(targetIndex: number) {
 }
 
 function jumpToPageStage(stage: HTMLElement) {
+  const stages = [...pages.querySelectorAll<HTMLElement>('.page-stage')]
+  const targetIndex = stages.indexOf(stage)
+  if (targetIndex >= 0) activePageIndex = targetIndex
   if (document.fullscreenElement) {
     pages.scrollTop = stage.offsetTop
     return
@@ -947,6 +999,19 @@ function jumpToPageStage(stage: HTMLElement) {
   window.scrollTo(0, top)
 }
 
+let pageTrackingFrame = 0
+function trackVisiblePage() {
+  if (syncingFullscreenPosition || pageTrackingFrame) return
+  pageTrackingFrame = window.requestAnimationFrame(() => {
+    pageTrackingFrame = 0
+    if (!syncingFullscreenPosition && pageAnnotationControllers.length) {
+      activePageIndex = currentPageIndex()
+    }
+  })
+}
+window.addEventListener('scroll', trackVisiblePage, { passive: true })
+pages.addEventListener('scroll', trackVisiblePage, { passive: true })
+
 window.addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement | null
   const isEditing = target?.matches('input, textarea, select, [contenteditable="true"]')
@@ -955,12 +1020,22 @@ window.addEventListener('keydown', (event) => {
     eraseCurrentSlide()
     return
   }
-  if (!isEditing && ['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
+  if (!isEditing && ['PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft'].includes(event.key)) {
     event.preventDefault()
-    changePage(event.key === 'PageDown' || event.key === 'ArrowDown' ? 1 : -1)
+    changePage(['PageDown', 'ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1)
     return
   }
   if (event.ctrlKey || event.metaKey || event.altKey) return
+  if (event.code === 'NumpadAdd') {
+    event.preventDefault()
+    setTool('pen')
+    return
+  }
+  if (event.code === 'NumpadSubtract') {
+    event.preventDefault()
+    setTool('eraser-stroke')
+    return
+  }
   if (event.key.toLowerCase() === 'p') setTool('pen')
   if (event.key.toLowerCase() === 't') setTool('text')
   if (event.key.toLowerCase() === 'e') setTool('eraser-pixel')

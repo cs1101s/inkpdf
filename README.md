@@ -18,6 +18,8 @@ Open the URL printed by Vite, then choose a PDF.
 - `T` — text paste mode; click the page and press `Ctrl+V` or `Cmd+V`
 - `E` — eraser
 - `X` — erase an entire pen stroke
+- Numpad `+` — pen
+- Numpad `-` — erase an entire pen stroke
 - `F` — enter or leave fullscreen presentation mode
 - `PageDown` — move to the next PDF page
 - `PageUp` — move to the previous PDF page
