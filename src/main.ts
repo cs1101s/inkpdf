@@ -68,7 +68,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <header class="toolbar">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">A</span>
-      <div><strong>InkPDF</strong><span>Local PDF annotator</span></div>
+      <div><strong>InkPDF <span class="version-badge">v${__APP_VERSION__}</span></strong><span>Local PDF annotator</span></div>
     </div>
     <div class="toolbar-actions">
       <label class="open-button" for="file-input">

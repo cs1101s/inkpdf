@@ -40,6 +40,10 @@ button { color: inherit; }
 .brand div { display: grid; line-height: 1.1; }
 .brand strong { font: 700 15px 'Manrope', sans-serif; letter-spacing: -.2px; }
 .brand span:last-child { color: #737c77; font-size: 11px; margin-top: 3px; }
+.version-badge {
+  font: 600 10px/1 'Manrope', sans-serif; letter-spacing: 0;
+  color: #737c77; margin-left: 4px; vertical-align: middle;
+}
 
 .toolbar-actions {
   display: flex; justify-content: center; justify-content: safe center; align-items: center; gap: 6px;
